@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 鍋の絵（仮のアイコン） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,50h48v16a8,8 0 0 1 -8,8h-32a8,8 0 0 1 -8,-8z M34,43h40v4h-40z M50,37h8v6h-8z M23,52h7v4h-7z M78,52h7v4h-7z" />
+</vector>

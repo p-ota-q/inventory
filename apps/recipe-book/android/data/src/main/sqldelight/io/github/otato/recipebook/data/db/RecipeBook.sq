@@ -1,0 +1,304 @@
+-- レシピ帳のテーブル（要件 6.1）。真偽値は INTEGER（0 / 1）、時刻はエポックミリ秒、日付は yyyy-MM-dd の文字で持つ。
+-- 列挙（状態・評価・出典の種類・書いた人）は、名前の文字で持つ。
+
+-- レシピ。中身（材料・手順など）は版（recipe_version）が持ち、ここは「いまの版」を指す
+CREATE TABLE recipe (
+    id TEXT NOT NULL PRIMARY KEY,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL,
+    current_version_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    -- 取り消せる削除（F-DA-03）。取り消さなければ、次に起動したときに消す
+    deleted_at INTEGER
+);
+
+-- 版（F-RC-07）。そのときの何人分・材料・手順・ポイントを丸ごと持つ
+CREATE TABLE recipe_version (
+    id TEXT NOT NULL PRIMARY KEY,
+    recipe_id TEXT NOT NULL REFERENCES recipe(id) ON DELETE CASCADE,
+    number INTEGER NOT NULL,
+    is_original INTEGER NOT NULL,
+    servings TEXT NOT NULL,
+    tips TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    from_cook_log_id TEXT,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX recipe_version_by_recipe ON recipe_version(recipe_id);
+
+CREATE TABLE ingredient (
+    version_id TEXT NOT NULL REFERENCES recipe_version(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    amount TEXT NOT NULL,
+    is_heading INTEGER NOT NULL,
+    PRIMARY KEY (version_id, position)
+);
+
+CREATE TABLE step (
+    version_id TEXT NOT NULL REFERENCES recipe_version(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    PRIMARY KEY (version_id, position)
+);
+
+CREATE TABLE recipe_source (
+    id TEXT NOT NULL PRIMARY KEY,
+    recipe_id TEXT NOT NULL REFERENCES recipe(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    url TEXT,
+    title TEXT NOT NULL,
+    note TEXT NOT NULL
+);
+
+CREATE INDEX recipe_source_by_recipe ON recipe_source(recipe_id);
+
+CREATE TABLE cook_log (
+    id TEXT NOT NULL PRIMARY KEY,
+    recipe_id TEXT NOT NULL REFERENCES recipe(id) ON DELETE CASCADE,
+    version_id TEXT REFERENCES recipe_version(id) ON DELETE SET NULL,
+    cooked_on TEXT NOT NULL,
+    rating TEXT,
+    impression TEXT NOT NULL,
+    changes TEXT NOT NULL,
+    next_note TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    deleted_at INTEGER
+);
+
+CREATE INDEX cook_log_by_recipe ON cook_log(recipe_id);
+
+CREATE TABLE tag (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL
+);
+
+CREATE TABLE recipe_tag (
+    recipe_id TEXT NOT NULL REFERENCES recipe(id) ON DELETE CASCADE,
+    tag_id TEXT NOT NULL REFERENCES tag(id) ON DELETE CASCADE,
+    PRIMARY KEY (recipe_id, tag_id)
+);
+
+-- 取り込んだ文章（そのまま残す。F-CL-05）
+CREATE TABLE imported_text (
+    id TEXT NOT NULL PRIMARY KEY,
+    recipe_id TEXT NOT NULL REFERENCES recipe(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+-- 変更を見張るための問い合わせ。実行はしない（どのテーブルが変わっても、知らせが来る）
+watchAll:
+SELECT 1 FROM recipe, recipe_version, ingredient, step, recipe_source, cook_log, tag, recipe_tag, imported_text LIMIT 0;
+
+-- ── 一覧 ──
+
+selectSummaries:
+SELECT
+    r.id,
+    r.title,
+    r.status,
+    r.created_at,
+    r.updated_at,
+    v.tips,
+    (SELECT COUNT(*) FROM cook_log c WHERE c.recipe_id = r.id AND c.deleted_at IS NULL) AS cook_count,
+    -- 該当がないと NULL になるので、空の文字にする（生成される型が NULL を許さないため）
+    COALESCE((SELECT c.cooked_on FROM cook_log c WHERE c.recipe_id = r.id AND c.deleted_at IS NULL ORDER BY c.cooked_on DESC, c.created_at DESC LIMIT 1), '') AS last_cooked_on,
+    (SELECT c.rating FROM cook_log c WHERE c.recipe_id = r.id AND c.deleted_at IS NULL ORDER BY c.cooked_on DESC, c.created_at DESC LIMIT 1) AS last_rating,
+    COALESCE((SELECT c.next_note FROM cook_log c WHERE c.recipe_id = r.id AND c.deleted_at IS NULL AND c.next_note <> '' ORDER BY c.cooked_on DESC, c.created_at DESC LIMIT 1), '') AS next_note,
+    COALESCE((SELECT group_concat(i.name, ' ') FROM ingredient i WHERE i.version_id = r.current_version_id), '') AS ingredient_text,
+    COALESCE((SELECT group_concat(c.impression || ' ' || c.changes || ' ' || c.next_note, ' ') FROM cook_log c WHERE c.recipe_id = r.id AND c.deleted_at IS NULL), '') AS log_text
+FROM recipe r
+JOIN recipe_version v ON v.id = r.current_version_id
+WHERE r.deleted_at IS NULL;
+
+selectAllRecipeTags:
+SELECT rt.recipe_id, t.id, t.name, t.position
+FROM recipe_tag rt
+JOIN tag t ON t.id = rt.tag_id
+ORDER BY t.position;
+
+-- ── レシピ ──
+
+selectRecipe:
+SELECT * FROM recipe WHERE id = ? AND deleted_at IS NULL;
+
+insertRecipe:
+INSERT INTO recipe (id, title, status, current_version_id, created_at, updated_at, deleted_at)
+VALUES (?, ?, ?, ?, ?, ?, NULL);
+
+updateRecipeMeta:
+UPDATE recipe SET title = ?, status = ?, updated_at = ? WHERE id = ?;
+
+updateRecipeStatus:
+UPDATE recipe SET status = ?, updated_at = ? WHERE id = ?;
+
+setCurrentVersion:
+UPDATE recipe SET current_version_id = ?, updated_at = ? WHERE id = ?;
+
+markRecipeDeleted:
+UPDATE recipe SET deleted_at = ? WHERE id = ?;
+
+unmarkRecipeDeleted:
+UPDATE recipe SET deleted_at = NULL WHERE id = ?;
+
+purgeDeletedRecipes:
+DELETE FROM recipe WHERE deleted_at IS NOT NULL;
+
+selectSourceUrls:
+SELECT s.recipe_id, s.url
+FROM recipe_source s
+JOIN recipe r ON r.id = s.recipe_id
+WHERE s.url IS NOT NULL AND r.deleted_at IS NULL;
+
+-- ── 版・材料・手順 ──
+
+selectVersion:
+SELECT * FROM recipe_version WHERE id = ?;
+
+selectOriginalVersion:
+SELECT * FROM recipe_version WHERE recipe_id = ? AND is_original = 1 LIMIT 1;
+
+selectVersions:
+SELECT * FROM recipe_version WHERE recipe_id = ? ORDER BY number DESC;
+
+countVersions:
+SELECT COUNT(*) FROM recipe_version WHERE recipe_id = ?;
+
+insertVersion:
+INSERT INTO recipe_version (id, recipe_id, number, is_original, servings, tips, reason, from_cook_log_id, created_by, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+updateVersionContent:
+UPDATE recipe_version SET servings = ?, tips = ? WHERE id = ?;
+
+selectIngredients:
+SELECT * FROM ingredient WHERE version_id = ? ORDER BY position;
+
+insertIngredient:
+INSERT INTO ingredient (version_id, position, name, amount, is_heading) VALUES (?, ?, ?, ?, ?);
+
+deleteIngredients:
+DELETE FROM ingredient WHERE version_id = ?;
+
+selectSteps:
+SELECT * FROM step WHERE version_id = ? ORDER BY position;
+
+insertStep:
+INSERT INTO step (version_id, position, text) VALUES (?, ?, ?);
+
+deleteSteps:
+DELETE FROM step WHERE version_id = ?;
+
+-- ── 出典 ──
+
+selectSources:
+SELECT * FROM recipe_source WHERE recipe_id = ? ORDER BY position;
+
+insertSource:
+INSERT INTO recipe_source (id, recipe_id, position, kind, url, title, note) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+deleteSources:
+DELETE FROM recipe_source WHERE recipe_id = ?;
+
+-- ── 作った記録 ──
+
+selectCookLogs:
+SELECT * FROM cook_log WHERE recipe_id = ? AND deleted_at IS NULL ORDER BY cooked_on DESC, created_at DESC;
+
+selectCookLog:
+SELECT * FROM cook_log WHERE id = ?;
+
+selectLastCookLogCreatedAt:
+SELECT created_at FROM cook_log WHERE recipe_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1;
+
+insertCookLog:
+INSERT INTO cook_log (id, recipe_id, version_id, cooked_on, rating, impression, changes, next_note, created_by, created_at, deleted_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL);
+
+updateCookLog:
+UPDATE cook_log SET cooked_on = ?, rating = ?, impression = ?, changes = ?, next_note = ? WHERE id = ?;
+
+markCookLogDeleted:
+UPDATE cook_log SET deleted_at = ? WHERE id = ?;
+
+unmarkCookLogDeleted:
+UPDATE cook_log SET deleted_at = NULL WHERE id = ?;
+
+purgeDeletedCookLogs:
+DELETE FROM cook_log WHERE deleted_at IS NOT NULL;
+
+-- ── タグ ──
+
+selectTags:
+SELECT * FROM tag ORDER BY position;
+
+selectTagsOfRecipe:
+SELECT t.* FROM tag t JOIN recipe_tag rt ON rt.tag_id = t.id WHERE rt.recipe_id = ? ORDER BY t.position;
+
+countTags:
+SELECT COUNT(*) FROM tag;
+
+insertTag:
+INSERT INTO tag (id, name, position) VALUES (?, ?, ?);
+
+renameTag:
+UPDATE tag SET name = ? WHERE id = ?;
+
+updateTagPosition:
+UPDATE tag SET position = ? WHERE id = ?;
+
+deleteTag:
+DELETE FROM tag WHERE id = ?;
+
+insertRecipeTag:
+INSERT OR IGNORE INTO recipe_tag (recipe_id, tag_id) VALUES (?, ?);
+
+deleteRecipeTags:
+DELETE FROM recipe_tag WHERE recipe_id = ?;
+
+-- ── 取り込んだ文章 ──
+
+selectImportedTexts:
+SELECT * FROM imported_text WHERE recipe_id = ? ORDER BY created_at;
+
+insertImportedText:
+INSERT INTO imported_text (id, recipe_id, text, created_at) VALUES (?, ?, ?, ?);
+
+-- ── バックアップ（全件の読み出しと、全件の削除） ──
+
+allRecipes:
+SELECT * FROM recipe WHERE deleted_at IS NULL;
+
+allVersions:
+SELECT v.* FROM recipe_version v JOIN recipe r ON r.id = v.recipe_id WHERE r.deleted_at IS NULL;
+
+allIngredients:
+SELECT i.* FROM ingredient i JOIN recipe_version v ON v.id = i.version_id JOIN recipe r ON r.id = v.recipe_id WHERE r.deleted_at IS NULL;
+
+allSteps:
+SELECT s.* FROM step s JOIN recipe_version v ON v.id = s.version_id JOIN recipe r ON r.id = v.recipe_id WHERE r.deleted_at IS NULL;
+
+allSources:
+SELECT s.* FROM recipe_source s JOIN recipe r ON r.id = s.recipe_id WHERE r.deleted_at IS NULL;
+
+allCookLogs:
+SELECT c.* FROM cook_log c JOIN recipe r ON r.id = c.recipe_id WHERE r.deleted_at IS NULL AND c.deleted_at IS NULL;
+
+allRecipeTags:
+SELECT rt.* FROM recipe_tag rt JOIN recipe r ON r.id = rt.recipe_id WHERE r.deleted_at IS NULL;
+
+allImportedTexts:
+SELECT t.* FROM imported_text t JOIN recipe r ON r.id = t.recipe_id WHERE r.deleted_at IS NULL;
+
+deleteAllRecipes:
+DELETE FROM recipe;
+
+deleteAllTags:
+DELETE FROM tag;

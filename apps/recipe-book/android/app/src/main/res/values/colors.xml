@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 起動直後（Compose が描き始める前）の背景。テーマの背景色（bg）と同じ -->
+    <color name="window_background">#F8F5F2</color>
+    <color name="ic_launcher_background">#8A3B12</color>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- アプリ名は仮（要件定義 Q-05）。決まったらここだけ変える -->
+    <string name="app_name">レシピ帳</string>
+    <!-- 共有のメニューに出る名前 -->
+    <string name="share_label">レシピ帳に追加</string>
+</resources>
