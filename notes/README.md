@@ -7,13 +7,22 @@
 
 ```
 notes/
+├── azure/              # Azure での実装メモ
 ├── coding-ai/          # AI コーディングツール・モデル関連
 ├── dnp/                # 生成 AI の活用事例
 ├── prompt/             # AI に渡すプロンプトの下書き
+├── web-security/       # Web セキュリティ・認証の基礎
 └── windows/            # Windows の設定・運用メモ
 ```
 
 ## ドキュメント一覧
+
+### azure/ — Azure での実装
+
+| ドキュメント | 概要 |
+|-------------|------|
+| [easy-auth-token-relay.md](azure/easy-auth-token-relay.md) | App Service の Easy Auth と nginx でトークンを中継する（トークンの扱い方の案の比較・nginx の設定・同じイメージで複数環境・`/.auth/me` を Front Door で遮断） |
+| [internal-spa-platform-auth.md](azure/internal-spa-platform-auth.md) | 社内共通 UI ライブラリへの認証の組み込み（Easy Auth ＋ APIM ＋ AKS・アプリ登録の設計・APIM ポリシー・Vue と Axios のライブラリ・移行手順） |
 
 ### coding-ai/ — AI コーディングツール・モデル
 
@@ -39,6 +48,15 @@ notes/
 |-------------|------|
 | [AppService_アクセストークン.md](prompt/AppService_アクセストークン.md) | App Service（Easy Auth）のトークンを API Management で検証する Vue アプリを、`lab/` に作らせるプロンプト |
 | [デザインシステム.md](prompt/デザインシステム.md) | （未記入） |
+
+### web-security/ — Web セキュリティ・認証の基礎
+
+| ドキュメント | 概要 |
+|-------------|------|
+| [xss.md](web-security/xss.md) | XSS の種類・Vue / React でも起きる書き方・社内アプリでの経路・対策（エスケープ・リンター・CSP・依存の管理） |
+| [spa-token-storage.md](web-security/spa-token-storage.md) | SPA のトークンの置き場所（localStorage と sessionStorage の違い・XSS 以外の漏れ方・IP 制限があるときのリスクの見積もり） |
+| [httponly-cookie.md](web-security/httponly-cookie.md) | HttpOnly クッキーとは何か・使える場面と使えない場面・属性・CSRF |
+| [spa-auth-architecture.md](web-security/spa-auth-architecture.md) | SPA の認証構成パターン（ブラウザで完結・トークン仲介型・BFF・S3 などの静的ホスティング・Azure での対応） |
 
 ### windows/ — Windows の設定・運用
 
