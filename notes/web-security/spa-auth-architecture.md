@@ -5,11 +5,17 @@
 SPA からバックエンドの API を呼ぶときに、トークンを誰が持つかで構成を分けた整理。
 静的ホスティング（S3 など）の場合と、Azure での対応も含める。
 
+前提知識:
+
+- [OAuth 2.0 と OpenID Connect の基礎](oauth-oidc-basics.md)（トークンの種類、認可コードフロー ＋ PKCE、公開クライアントと機密クライアント）
+- [オリジン・サイト・クッキー・CORS・CSRF](origin-cookie-cors-csrf.md)（BFF を同じオリジンに置く理由）
+
 関連:
 
 - [SPA のトークンの置き場所](spa-token-storage.md)
 - [HttpOnly クッキー](httponly-cookie.md)
-- [App Service の Easy Auth と nginx でトークンを中継する](../azure/easy-auth-token-relay.md)
+- Azure での実装: [App Service の Easy Auth と nginx でトークンを中継する](../azure/easy-auth-token-relay.md)
+- AWS での実装: [Cognito を使う SPA のトークンの扱いと構成の選び方](../aws/cognito-spa-auth.md)
 
 ## パターン一覧
 
@@ -96,6 +102,7 @@ flowchart LR
 ### クッキーが届くかどうかが本当の制約
 
 BFF の制約は「トークンが要る」ことではなく、**クッキーをブラウザが BFF に送ってくれるか**。そのため、BFF と画面を同じオリジン（少なくとも同じサイト）に置く必要がある。
+理由の詳細は [オリジン・サイト・クッキー・CORS・CSRF](origin-cookie-cors-csrf.md#まとめ-bff-や-api-を同じオリジンに置く理由) を参照。
 
 | 画面 | BFF | クッキーの扱い |
 |---|---|---|
@@ -133,6 +140,54 @@ CloudFront で気をつけること:
 - **サブドメインで同じサイトにする**: すでに独自ドメインを持っていて、API を別のサブドメインに分けたいとき。CORS は `credentials` 付きで設定する
 - **SPA だけで完結させる**: サーバーを置けない、外部 API を直接呼ぶとき。A の「被害を小さくするためにやること」を全部やる
 
+## API を同じオリジンに置くか、分けるか
+
+BFF だけでなく、業務 API そのもの（バックエンド）を画面と同じオリジンに置くかどうかの考え方。
+
+### Web だけが使う API なら、同じオリジンに置くのがよい
+
+CDN やリバースプロキシで `/*` を SPA、`/api/*` を API に振り分ける形。
+
+| メリット | デメリット・注意点 |
+|---|---|
+| API サーバーがそのまま BFF を兼ねられ、クッキーで認証できる | CDN の設定を間違えると、API の応答がキャッシュされる・エラーが書き換わるなどの事故が起きる（AWS の例は [BFF と ALB](../aws/bff-and-alb-auth.md#cloudfront-で-spa-と-api-を同じオリジンにするときの注意点) を参照） |
+| CORS が要らず、CSRF 対策も単純になる | API サーバーから見た送信元が CDN になるので、利用者の IP をヘッダーから取り直す |
+| 入口が 1 つになり、WAF・ログ・回数制限を 1 か所で掛けられる | CDN が待つ応答時間の上限があるので、長い処理は非同期にする |
+| API の置き場所を変えても URL が変わらない | 画面と API が同じドメインの運用に縛られる |
+| CDN の拠点で TLS を終端し、API の応答も速くなることが多い | |
+
+### 同じオリジンに置くのは、SPA と API だけにする
+
+同じオリジンに置いたものは、すべて同じ権限を持つ。**ほかのものが混ざると、そこで起きた XSS で利用者のセッションを使われる。**
+
+```mermaid
+flowchart LR
+  B["ブラウザ"] --> M["example.com"]
+  M -->|"/*"| SPA["SPA"]
+  M -->|"/api/*"| API["API（BFF）"]
+  B --> U["files.example-usercontent.com<br/>利用者がアップロードしたファイル"]
+  B --> LP["lp.example.com などの別サイト<br/>キャンペーンページ・CMS"]
+```
+
+- **利用者がアップロードした画像やファイル**は、別のドメインから配信する。同じオリジンで配信すると、HTML や SVG に仕込まれたスクリプトが利用者のセッションで動く
+- **別のチームや外部の制作会社が更新するページ**（キャンペーンページ・CMS など）も、別のオリジンに分ける。同じサイトのサブドメインにする場合は、`SameSite` だけに頼らず `Origin` の確認も入れる
+
+### API を別のオリジンに分けたほうがよい場合
+
+**モバイルアプリや外部の提携先からも同じ API を使う**場合。クッキーはブラウザ向けの仕組みなので、そうしたクライアントにはトークン（`Authorization: Bearer`）での認証が必要になる。
+
+```mermaid
+flowchart LR
+  W["Web の SPA"] -->|"クッキー"| G1["example.com/api<br/>（同じオリジン）"]
+  M["モバイルアプリ・提携先"] -->|"Bearer トークン"| G2["api.example.com"]
+  G1 --> S["同じ API サーバー"]
+  G2 --> S
+```
+
+- Web は今までどおり、同じオリジンの `/api` を経由してクッキーで認証する
+- モバイルや提携先は、別の入口からトークンで認証する（モバイルアプリは認可コード ＋ PKCE）
+- 裏側は同じ API でよい。ただし認証の入口を分け、**クッキーで認証したリクエストにだけ CSRF の確認を必ず掛ける**
+
 ## Azure での対応
 
 | 構成 | Azure での対応 |
@@ -144,6 +199,17 @@ CloudFront で気をつけること:
 Static Web Apps は BFF の形をそのままマネージドにしたものに近い。ただし API 側に届くのは利用者の情報（`x-ms-client-principal` ヘッダー）で、アクセストークンではないと理解している。
 自前の API で利用者を識別するだけなら十分だが、利用者の権限で外部 API を呼ぶ用途には向かないかもしれない（使う前に最新の仕様を確認する）。
 
+## AWS での対応
+
+Cognito で認証し、SPA を S3 ＋ CloudFront で配信する場合。詳しくは [Cognito を使う SPA のトークンの扱いと構成の選び方](../aws/cognito-spa-auth.md) と [BFF と ALB](../aws/bff-and-alb-auth.md) を参照。
+
+| 構成 | AWS での対応 |
+|---|---|
+| ブラウザで完結 | Amplify などで Cognito に直接ログインする。保存先と有効期間の見直しが必須 |
+| BFF（Lambda） | CloudFront で `/api/*` と `/auth/*` を API Gateway ＋ Lambda に振り分け、セッションは DynamoDB |
+| BFF（API サーバーが兼ねる） | CloudFront で `/api/*` を ALB → API サーバーに振り分け、API サーバーがログインとセッションを担う |
+| ロードバランサーで認証 | ALB の Cognito 認証（`authenticate-cognito`） |
+
 ## 選び方
 
 | 状況 | おすすめ |
@@ -152,6 +218,7 @@ Static Web Apps は BFF の形をそのままマネージドにしたものに�
 | 一般公開や機微なデータで、トークンを一切ブラウザに出したくない | 自前の BFF |
 | 静的サイトの構成を変えたくないが、自前 API がある | CDN で `/api` だけを BFF に振り分ける。BFF と API を一体にしてもよい |
 | サーバーを置けない、外部 API をブラウザから直接呼ぶ | ブラウザで完結（PKCE、メモリ保存、CSP、短命トークン） |
+| AWS で Cognito を使う | [Cognito を使う SPA の「選び方」](../aws/cognito-spa-auth.md#選び方)を参照 |
 
 どの構成でもやること:
 

@@ -7,6 +7,7 @@
 
 ```
 notes/
+├── aws/                # AWS での実装メモ
 ├── azure/              # Azure での実装メモ
 ├── coding-ai/          # AI コーディングツール・モデル関連
 ├── dnp/                # 生成 AI の活用事例
@@ -16,6 +17,13 @@ notes/
 ```
 
 ## ドキュメント一覧
+
+### aws/ — AWS での実装
+
+| ドキュメント | 概要 |
+|-------------|------|
+| [cognito-spa-auth.md](aws/cognito-spa-auth.md) | Cognito を使う SPA（S3 ＋ CloudFront）のトークンの扱いと構成の選び方（Cognito と CloudFront の前提知識・構成ごとのメリットとデメリット・ログイン状態の保持） |
+| [bff-and-alb-auth.md](aws/bff-and-alb-auth.md) | Cognito ＋ SPA で BFF・ALB を使う（Lambda の BFF・API サーバーが BFF を兼ねる形・ALB の Cognito 認証・CloudFront で同じオリジンにするときの注意点） |
 
 ### azure/ — Azure での実装
 
@@ -53,10 +61,12 @@ notes/
 
 | ドキュメント | 概要 |
 |-------------|------|
+| [oauth-oidc-basics.md](web-security/oauth-oidc-basics.md) | 前提知識: OAuth 2.0 と OpenID Connect の基礎（トークンの種類・JWT の検証・認可コードフロー ＋ PKCE・公開クライアントと機密クライアント） |
+| [origin-cookie-cors-csrf.md](web-security/origin-cookie-cors-csrf.md) | 前提知識: オリジンとサイト・クッキーが送られる条件・CORS・CSRF、BFF や API を同じオリジンに置く理由 |
 | [xss.md](web-security/xss.md) | XSS の種類・Vue / React でも起きる書き方・社内アプリでの経路・対策（エスケープ・リンター・CSP・依存の管理） |
-| [spa-token-storage.md](web-security/spa-token-storage.md) | SPA のトークンの置き場所（localStorage と sessionStorage の違い・XSS 以外の漏れ方・IP 制限があるときのリスクの見積もり） |
+| [spa-token-storage.md](web-security/spa-token-storage.md) | SPA のトークンの置き場所（localStorage と sessionStorage の違い・ログイン状態をどこまで保持するか・XSS 以外の漏れ方・IP 制限があるときのリスクの見積もり） |
 | [httponly-cookie.md](web-security/httponly-cookie.md) | HttpOnly クッキーとは何か・使える場面と使えない場面・属性・CSRF |
-| [spa-auth-architecture.md](web-security/spa-auth-architecture.md) | SPA の認証構成パターン（ブラウザで完結・トークン仲介型・BFF・S3 などの静的ホスティング・Azure での対応） |
+| [spa-auth-architecture.md](web-security/spa-auth-architecture.md) | SPA の認証構成パターン（ブラウザで完結・トークン仲介型・BFF・S3 などの静的ホスティング・API を同じオリジンに置くか分けるか・Azure と AWS での対応） |
 
 ### windows/ — Windows の設定・運用
 
